@@ -2,41 +2,6 @@ type Env = { DB: D1Database };
 
 type Payload = Record<string, unknown>;
 
-const roomSeeds = [
-  ["Ingresso", "#5b6ee1", 10],
-  ["Cucina", "#f08a5d", 20],
-  ["Soggiorno", "#b45f8a", 30],
-  ["Bagno", "#2a9d8f", 40],
-  ["Camera", "#7868e6", 50],
-  ["Impianti", "#d97706", 60],
-] as const;
-
-const typeSeeds = [
-  ["Lavatrice", "Elettrodomestici", "washing-machine"],
-  ["Lavastoviglie", "Elettrodomestici", "sparkles"],
-  ["Macchina del caffè", "Cucina", "coffee"],
-  ["Climatizzatore", "Climatizzazione", "snowflake"],
-  ["Caldaia", "Impianti", "flame"],
-  ["Frigorifero", "Elettrodomestici", "refrigerator"],
-  ["Forno", "Cucina", "cooking-pot"],
-  ["Cappa aspirante", "Cucina", "wind"],
-] as const;
-
-const templateSeeds = [
-  ["Lavatrice", "Pulizia filtro", 90, 14],
-  ["Lavatrice", "Ciclo pulizia cestello", 30, 7],
-  ["Lavastoviglie", "Pulizia filtro", 30, 7],
-  ["Lavastoviglie", "Pulizia irroratori", 90, 14],
-  ["Macchina del caffè", "Decalcificazione", 90, 14],
-  ["Macchina del caffè", "Pulizia gruppo erogatore", 30, 7],
-  ["Climatizzatore", "Pulizia filtri", 60, 10],
-  ["Climatizzatore", "Controllo stagionale", 365, 30],
-  ["Caldaia", "Manutenzione annuale", 365, 30],
-  ["Frigorifero", "Pulizia condensatore", 180, 30],
-  ["Forno", "Pulizia approfondita", 90, 14],
-  ["Cappa aspirante", "Pulizia filtro antigrasso", 30, 7],
-] as const;
-
 function errorResponse(message: string, status = 400) {
   return Response.json({ error: message }, { status });
 }
@@ -76,38 +41,7 @@ function addDays(date: string, days: number) {
   return isoDate(value);
 }
 
-async function ensureDefaults(db: D1Database) {
-  const statements = [
-    ...roomSeeds.map(([name, color, order]) =>
-      db
-        .prepare(
-          "INSERT OR IGNORE INTO rooms (name, color, sort_order) VALUES (?, ?, ?)",
-        )
-        .bind(name, color, order),
-    ),
-    ...typeSeeds.map(([name, category, icon]) =>
-      db
-        .prepare(
-          "INSERT OR IGNORE INTO asset_types (name, category, icon) VALUES (?, ?, ?)",
-        )
-        .bind(name, category, icon),
-    ),
-    ...templateSeeds.map(([typeName, name, intervalDays, warningDays]) =>
-      db
-        .prepare(
-          `INSERT OR IGNORE INTO maintenance_templates
-             (asset_type_id, name, interval_days, warning_days)
-           SELECT id, ?, ?, ? FROM asset_types WHERE name = ?`,
-        )
-        .bind(name, intervalDays, warningDays, typeName),
-    ),
-  ];
-
-  await db.batch(statements);
-}
-
 async function readDashboard(db: D1Database) {
-  await ensureDefaults(db);
   const [rooms, types, templates, assets, tasks, logs] = await db.batch([
     db.prepare("SELECT * FROM rooms ORDER BY sort_order, name"),
     db.prepare(
@@ -189,7 +123,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const action = textValue(body.action, 40);
     const db = env.DB;
 
-    if (action === "create_room") {
+    if (["delete_room", "delete_asset_type", "delete_template", "delete_log"].includes(action)) {
+      const id = positiveInteger(body.id);
+      if (!id) return errorResponse("Elemento non valido.");
+      const statements: Record<string, string> = {
+        delete_room: "DELETE FROM rooms WHERE id = ?",
+        delete_asset_type: "DELETE FROM asset_types WHERE id = ?",
+        delete_template: "DELETE FROM maintenance_templates WHERE id = ?",
+        delete_log: "DELETE FROM maintenance_logs WHERE id = ?",
+      };
+      const result = await db.prepare(statements[action]).bind(id).run();
+      if (!result.meta.changes) return errorResponse("Elemento non trovato.", 404);
+    } else if (action === "create_room") {
       const name = textValue(body.name, 80);
       if (!name) return errorResponse("Inserisci il nome della stanza.");
       await db

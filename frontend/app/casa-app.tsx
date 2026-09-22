@@ -242,6 +242,7 @@ async function apiAction(action: string, payload: Record<string, unknown> = {}) 
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ action, ...payload }),
   });
+  if (response.status === 401) { window.location.assign("/login"); throw new Error("Accedi di nuovo."); }
   const result = (await response.json()) as { error?: string };
   if (!response.ok) throw new Error(result.error || "Operazione non riuscita.");
   return result;
@@ -260,6 +261,7 @@ export function CasaApp() {
   const load = useCallback(async () => {
     try {
       const response = await fetch("/api/casa", { cache: "no-store" });
+      if (response.status === 401) { window.location.assign("/login"); return; }
       const result = (await response.json()) as CasaData & { error?: string };
       if (!response.ok) throw new Error(result.error);
       setData(result);
@@ -329,7 +331,7 @@ export function CasaApp() {
   };
 
   const currentTitle =
-    navItems.find((item) => item.id === view)?.label ?? "Casa Cura";
+    navItems.find((item) => item.id === view)?.label ?? "Domio";
 
   return (
     <SidebarProvider>
@@ -341,7 +343,7 @@ export function CasaApp() {
             </div>
             <div className="min-w-0 group-data-[collapsible=icon]:hidden">
               <strong className="block text-base tracking-[-0.02em] text-white">
-                Casa Cura
+                Domio
               </strong>
               <span className="text-xs text-white/50">Registro domestico</span>
             </div>
@@ -372,6 +374,7 @@ export function CasaApp() {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter className="p-3">
+          <form method="post" action="/auth/logout"><Button type="submit" variant="ghost" className="w-full text-white hover:bg-white/10 hover:text-white">Esci</Button></form>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-3 group-data-[collapsible=icon]:p-2">
             <div className="flex items-center gap-2 text-white/75">
               <Settings2 className="size-4 shrink-0" />
@@ -464,14 +467,16 @@ export function CasaApp() {
               />
             )}
             {view === "plan" && (
-              <PlanView tasks={data.tasks} onComplete={openComplete} />
+              <PlanView tasks={data.tasks} onComplete={openComplete} perform={perform} />
             )}
-            {view === "history" && <HistoryView logs={data.logs} />}
+            {view === "history" && <HistoryView logs={data.logs} perform={perform} />}
             {view === "catalog" && (
               <CatalogView
                 data={data}
                 onAddType={() => setModal("type")}
                 onAddTemplate={() => setModal("template")}
+                onAddRoom={() => setModal("room")}
+                perform={perform}
               />
             )}
           </main>
@@ -582,7 +587,7 @@ function TodayView({
                 Inizia dal primo elemento che vuoi curare.
               </h2>
               <p className="mt-4 max-w-lg text-base leading-7 text-[#60777d]">
-                Aggiungi un impianto o un elettrodomestico: Casa Cura preparerà
+                Aggiungi un impianto o un elettrodomestico: Domio preparerà
                 le attività periodiche e terrà aggiornate le scadenze.
               </p>
               <Button
@@ -849,7 +854,7 @@ function HomeView({
         <div>
           <p className="text-sm text-[#688087]">Inventario domestico</p>
           <h2 className="mt-1 text-3xl font-bold tracking-[-0.045em] text-[#12343b]">
-            {data.assets.length} elementi in cura
+            {data.assets.length} elementi di casa
           </h2>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -951,9 +956,11 @@ function HomeView({
 function PlanView({
   tasks,
   onComplete,
+  perform,
 }: {
   tasks: Task[];
   onComplete: (task: Task) => void;
+  perform: Perform;
 }) {
   const groups = [
     {
@@ -1017,6 +1024,7 @@ function PlanView({
                     <span className="text-xs font-semibold text-[#557178]">
                       {dueLabel(task.days_until_due)}
                     </span>
+                    <DeleteButton name={task.name} description="La manutenzione e il suo storico verranno eliminati." onDelete={() => perform("delete_task", { id: task.id }, "Manutenzione eliminata")} />
                     <Button
                       size="sm"
                       variant="ghost"
@@ -1041,7 +1049,7 @@ function PlanView({
   );
 }
 
-function HistoryView({ logs }: { logs: Log[] }) {
+function HistoryView({ logs, perform }: { logs: Log[]; perform: Perform }) {
   return (
     <div className="mx-auto max-w-4xl">
       <p className="text-sm text-[#688087]">Interventi completati</p>
@@ -1060,7 +1068,9 @@ function HistoryView({ logs }: { logs: Log[] }) {
                   {formatDate(log.completed_at, true)}
                 </time>
                 <div>
-                  <strong className="text-[#173940]">{log.task_name}</strong>
+                  <div className="flex items-center justify-between gap-3"><strong className="text-[#173940]">{log.task_name}</strong>
+                    <DeleteButton name={log.task_name} description="Verrà eliminata solo questa registrazione. Le date della manutenzione non cambieranno." onDelete={() => perform("delete_log", { id: log.id }, "Registrazione eliminata")} />
+                  </div>
                   <p className="mt-1 text-sm text-[#6f858a]">{log.asset_name}</p>
                   {log.notes && (
                     <p className="mt-3 rounded-xl bg-[#f4f7f8] p-3 text-sm text-[#536d73]">
@@ -1082,14 +1092,36 @@ function HistoryView({ logs }: { logs: Log[] }) {
   );
 }
 
+
+function DeleteButton({ name, description, onDelete }: { name: string; description: string; onDelete: () => Promise<boolean> }) {
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  return <AlertDialog open={open} onOpenChange={value => { if (!pending) setOpen(value); }}>
+    <AlertDialogTrigger asChild><Button variant="ghost" size="icon" aria-label={`Elimina ${name}`} title={`Elimina ${name}`} className="shrink-0 text-red-600 hover:bg-red-50"><Trash2 className="size-4" /></Button></AlertDialogTrigger>
+    <AlertDialogContent>
+      <AlertDialogHeader><AlertDialogTitle>Eliminare {name}?</AlertDialogTitle><AlertDialogDescription>{description} Questa operazione non può essere annullata.</AlertDialogDescription></AlertDialogHeader>
+      <AlertDialogFooter><AlertDialogCancel disabled={pending}>Annulla</AlertDialogCancel>
+        <AlertDialogAction disabled={pending} className="bg-red-600 hover:bg-red-700" onClick={async event => {
+          event.preventDefault(); setPending(true);
+          try { if (await onDelete()) setOpen(false); } finally { setPending(false); }
+        }}>{pending ? "Eliminazione…" : "Elimina"}</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>;
+}
+
 function CatalogView({
   data,
   onAddType,
   onAddTemplate,
+  onAddRoom,
+  perform,
 }: {
   data: CasaData;
   onAddType: () => void;
   onAddTemplate: () => void;
+  onAddRoom: () => void;
+  perform: Perform;
 }) {
   return (
     <div>
@@ -1109,6 +1141,7 @@ function CatalogView({
           <TabsTrigger value="templates" className="flex-none px-3 pb-3">
             Attività standard · {data.templates.length}
           </TabsTrigger>
+          <TabsTrigger value="rooms" className="flex-none px-3 pb-3">Stanze · {data.rooms.length}</TabsTrigger>
         </TabsList>
         <TabsContent value="types" className="mt-5">
           <div className="mb-4 flex justify-end">
@@ -1133,6 +1166,7 @@ function CatalogView({
                     {type.category ?? "Altro"} · {type.template_count} attività
                   </span>
                 </div>
+                <div className="ml-auto"><DeleteButton name={type.name} description="Il tipo e i suoi modelli standard verranno eliminati. Gli elementi e le manutenzioni già create resteranno disponibili, senza questo tipo." onDelete={() => perform("delete_asset_type", { id: type.id }, "Tipo eliminato")} /></div>
               </div>
             ))}
           </div>
@@ -1168,11 +1202,22 @@ function CatalogView({
                   </span>
                   <span className="text-[#61797f]">
                     {template.warning_days} gg
+                    <DeleteButton name={template.name} description="Il modello standard verrà eliminato. Le manutenzioni già create non cambieranno." onDelete={() => perform("delete_template", { id: template.id }, "Attività standard eliminata")} />
                   </span>
                 </div>
               ))}
             </div>
           </div>
+        </TabsContent>
+        <TabsContent value="rooms" className="mt-5">
+          <div className="mb-4 flex justify-end"><Button onClick={onAddRoom}><Plus className="size-4" /> Nuova stanza</Button></div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {data.rooms.map(room => <div key={room.id} className="flex items-center justify-between gap-3 rounded-2xl border bg-white p-4">
+              <strong>{room.name}</strong>
+              <DeleteButton name={room.name} description="La stanza verrà eliminata. Gli elementi resteranno disponibili come «Senza stanza»." onDelete={() => perform("delete_room", { id: room.id }, "Stanza eliminata")} />
+            </div>)}
+          </div>
+          {!data.rooms.length && <p className="mt-4 text-sm text-[#61797f]">Nessuna stanza. Aggiungi solo quelle che ti servono.</p>}
         </TabsContent>
       </Tabs>
     </div>

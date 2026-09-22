@@ -1,39 +1,35 @@
-# Verifica della consegna — 22 settembre 2026
+# Verifica Domio — 22 settembre 2026
 
-La consegna è predisposta per Cloudflare Pages con integrazione GitHub.
-Non è stata pubblicata e non sono stati modificati account esterni.
+Consegna per Cloudflare Pages e D1. Nessuna pubblicazione o modifica agli account esterni.
 
-## Correzioni rispetto alla cartella precedente
+## Aggiornamento
 
-- Passaggio da Workers/Vinext a file statici in public e Pages Functions alla radice.
-- Conservazione dell'interfaccia React, compilata in anticipo: prima pubblicazione senza build.
-- Rimozione di Next, Vinext, Drizzle e componenti UI non utilizzati dalla nuova consegna.
-- Nessun file Wrangler, account ID o database ID da inserire nel repository.
-- Accesso privato mediante secret APP_PASSWORD configurato nel pannello Cloudflare.
-- Tutte le rotte protette; risposte private non memorizzabili in cache.
-- Controllo dell'origine delle richieste di modifica e del formato JSON.
-- Schema SQL ripetibile senza eliminare tabelle o righe.
+- Nome visibile Domio, inclusi titolo della pagina e schermata di accesso.
+- Login con sola password, senza nome utente e senza lunghezza minima.
+- APP_PASSWORD resta il secret da configurare in Cloudflare; un valore vuoto blocca l'accesso.
+- Sessione di 12 ore firmata con HMAC, cookie HttpOnly, SameSite=Strict e Secure su HTTPS.
+- Pulsante Esci; cambio della password invalida le sessioni precedenti.
+- Eliminazione con conferma di tipi, modelli standard, stanze, manutenzioni e singole registrazioni.
+- Elementi e manutenzioni già create conservati quando si elimina un tipo o un modello.
+- Eliminazione di una stanza lascia gli elementi senza stanza.
+- Default non reinseriti al caricamento. Le nuove installazioni partono vuote.
+- Nessuna variazione allo schema SQL: aggiornamento compatibile con il database esistente.
 
-## Verifiche eseguite
+## Test eseguiti
 
-- Controllo TypeScript del frontend e delle Functions.
-- Build Vite riuscita; index.html e asset referenziati disponibili.
-- Compilazione Pages Functions con Wrangler nel runtime locale Cloudflare.
-- SQL eseguito su D1 locale e rieseguito senza errori.
-- Richieste anonime a homepage, favicon e API: 401.
-- Secret assente: 503 senza invocare l'applicazione.
-- Accesso valido: homepage, asset e API rispondono correttamente.
-- Cataloghi iniziali: 6 stanze, 8 tipologie e 12 modelli di manutenzione.
-- Creazione di un elemento, creazione e completamento di una manutenzione.
-- Verifica di storico e scadenza successiva.
-- Eliminazione dell'elemento e delle manutenzioni e registrazioni collegate.
-- Richiesta da origine esterna: 403; formato non JSON: 415; JSON malformato: 400.
+- Controllo TypeScript del frontend e delle Pages Functions.
+- Build Vite del sito in public.
+- Compilazione e avvio nel runtime locale di Pages con D1.
+- Accesso con password di un solo carattere, senza nome utente.
+- HTML e asset compilati serviti correttamente.
+- API anonime bloccate; homepage anonima reindirizzata al login.
+- Cookie protetto su HTTPS; token alterato, scaduto o firmato con la vecchia password rifiutato.
+- Uscita con cancellazione del cookie; secret vuoto bloccato.
+- Login da un'origine esterna rifiutato.
+- Cancellazione di un tipo predefinito e successive letture: nessuna ricreazione.
+- Cancellazione di stanza, tipo e modello: elementi e manutenzioni collegati conservati come previsto.
+- Cancellazione di una voce del registro: scadenza della manutenzione invariata.
+- Cancellazione di manutenzione ed elemento.
 
-I test hanno usato soltanto un database locale esterno alla cartella consegnata.
-L'installazione finale nel tuo account non è verificabile senza il caricamento manuale.
-Restano da configurare repository, progetto Pages, database D1, binding DB e secret
-APP_PASSWORD, quindi eseguire il deploy e la verifica descritta nella guida.
-
-Il frontend è React compilato, non una riscrittura vanilla. I sorgenti sono conservati
-in frontend per manutenzione; per aggiornarli bisogna rigenerare public.
-L'applicazione gestisce una sola casa condivisa, con accesso Basic tramite browser.
+I test usano un database locale esterno alla consegna.
+Il deploy sul tuo account resta manuale: vedi AGGIORNAMENTO-DOMIO.md.

@@ -1,4 +1,4 @@
-# Casa Cura — Cloudflare Pages
+# Domio — Cloudflare Pages
 
 Gestione domestica di elementi, manutenzioni ricorrenti e storico, con database Cloudflare D1.
 
@@ -13,12 +13,11 @@ Gestione domestica di elementi, manutenzioni ricorrenti e storico, con database 
 | Root directory | vuota |
 | Production branch | main |
 | Binding D1 | DB |
-| Secret obbligatorio | APP_PASSWORD, almeno 16 caratteri |
-| Nome utente di accesso | casa |
+| Secret obbligatorio | APP_PASSWORD, qualsiasi password non vuota |
 
 I file in `public/` sono già compilati. `functions/` contiene le Pages Functions e deve restare nella radice del repository.
 La password si imposta solo in Cloudflare. Senza password il sito restituisce 503 e non espone dati.
-Il database contiene una sola casa condivisa da chi conosce la password: non è un servizio multiutente con archivi separati.
+Il programma è monoutenza. L'accesso richiede soltanto la password e la sessione dura 12 ore; il pulsante Esci chiude la sessione nel browser. Non ci sono account o nomi utente.
 
 ## Struttura
 
@@ -30,7 +29,6 @@ Il database contiene una sola casa condivisa da chi conosce la password: non è 
 
 React viene mantenuto per conservare l'interfaccia e i componenti già realizzati. Non serve Node per caricare questa consegna.
 La build è necessaria soltanto quando si modificano i sorgenti del frontend; le istruzioni sono nella guida.
-Non sono inclusi dati domestici esistenti: il nuovo database parte vuoto, con cataloghi iniziali creati al primo accesso.
+Non sono inclusi dati domestici esistenti: il nuovo database parte vuoto, senza cataloghi precompilati.
 
 Nessun account ID, database ID, password o token è richiesto nei file del progetto.
-

@@ -1,4 +1,6 @@
-# Pubblicare Casa Cura: istruzioni manuali
+# Pubblicare Domio: istruzioni manuali
+
+Per aggiornare un'installazione già attiva leggi prima [AGGIORNAMENTO-DOMIO.md](AGGIORNAMENTO-DOMIO.md).
 
 Questa guida riguarda esclusivamente la cartella **casa-cura-pages**.
 Sostituisce le precedenti istruzioni per casa-cura-cloudflare.
@@ -28,7 +30,7 @@ Il caricamento via browser non applica automaticamente le esclusioni di .gitigno
 5. Nella scheda Code scegli **Add file → Upload files**. Se il repository è vuoto, usa il collegamento per caricare file esistenti.
 6. Trascina il contenuto della cartella casa-cura-pages nell'area di caricamento. Se Windows nasconde .gitignore, abilita la visualizzazione dei file nascosti e includilo.
 7. Verifica che compaiano percorsi come public/index.html e functions/api/casa.ts. Non devono iniziare con casa-cura-pages/.
-8. Scrivi un messaggio, ad esempio “Prima versione Casa Cura”, e conferma con **Commit changes** sul branch main.
+8. Scrivi un messaggio, ad esempio “Prima versione Domio”, e conferma con **Commit changes** sul branch main.
 9. Controlla nella pagina principale che public e functions siano cartelle sorelle alla radice.
 
 Non caricare uno ZIP come unico file del repository: GitHub non lo estrae per il deploy.
@@ -48,7 +50,7 @@ Se il repository contiene già la vecchia versione Workers, è più semplice cre
 
 Il file usa CREATE ... IF NOT EXISTS: rieseguirlo non elimina righe esistenti. Non aggiorna però automaticamente strutture precedenti differenti: per questa prima pubblicazione usa un database nuovo.
 Non devi copiare l'ID del database in alcun file.
-Al primo accesso l'applicazione inserisce stanze, tipologie e modelli standard. Elementi domestici e storico saranno inizialmente vuoti.
+La nuova installazione parte vuota. Aggiungi solo stanze, tipologie, elementi e manutenzioni che ti servono; nessun default viene reinserito automaticamente.
 I dati eventualmente salvati nella vecchia anteprima non vengono trasferiti da questo caricamento.
 
 ## 4. Collega GitHub a Cloudflare Pages
@@ -93,12 +95,12 @@ Nel progetto Pages apri **Settings**.
 1. Apri **Variables and Secrets** (in alcune interfacce Environment variables).
 2. Seleziona Production.
 3. Aggiungi una variabile di tipo **Secret**, nome **APP_PASSWORD**.
-4. Imposta una password lunga e unica, almeno 16 caratteri. Preferisci caratteri ASCII per la massima compatibilità con i browser.
+4. Imposta la password che preferisci: non c'è una lunghezza minima. Il valore non deve essere vuoto e viene confrontato esattamente, senza rimuovere gli spazi.
 5. Salva la password nel tuo gestore di password e salva la configurazione Cloudflare.
 
-Il nome utente del sito è **casa**. La password è quella scelta da te.
+Si accede con la sola password scelta da te. Non è richiesto un nome utente.
 Non usare il prefisso VITE_ per il secret e non scriverlo nei sorgenti o nei file SQL.
-L'accesso usa la finestra nativa del browser (HTTP Basic su HTTPS), non un account GitHub o Cloudflare.
+L'accesso usa la schermata Domio con un solo campo Password. La sessione è conservata in un cookie HttpOnly, Secure su HTTPS e SameSite=Strict; dura 12 ore.
 
 ### Protezione in caso di limite Functions
 
@@ -117,17 +119,17 @@ Non devi rieseguire il file SQL a ogni deploy. Il database persiste separatament
 ## 7. Verifica il sito
 
 1. Apri l'indirizzo HTTPS pages.dev in una finestra privata.
-2. Verifica che il browser chieda le credenziali.
-3. Accedi con utente casa e la password configurata.
+2. Verifica che compaia la schermata Domio con il solo campo Password.
+3. Accedi con la password configurata.
 4. Controlla dashboard e cataloghi.
 5. Aggiungi un elemento domestico di prova.
 6. Crea una manutenzione, completala e verifica lo storico e la nuova scadenza.
 7. Ricarica la pagina: i dati devono esserci ancora.
 8. Cancella l'elemento di prova quando hai finito: l'eliminazione rimuove anche le manutenzioni e lo storico associati.
-9. In una nuova sessione privata senza credenziali, apri /api/casa: deve chiedere l'accesso e non mostrare dati.
+9. In una nuova sessione privata senza credenziali, apri /api/casa: deve restituire 401 e non mostrare dati; aprendo la homepage deve comparire il login.
 
-Il browser può ricordare le credenziali Basic fino alla chiusura della sessione; l'app non ha un pulsante di logout.
-Chi conosce la password vede e modifica la stessa casa. Per revocare l'accesso cambia il secret e ripeti il deploy.
+Usa **Esci** nella barra laterale per chiudere la sessione. Dopo 12 ore dovrai accedere nuovamente.
+Cambiare il secret e ripetere il deploy invalida le sessioni firmate con la vecchia password.
 
 ## 8. Preview, aggiornamenti e dominio
 
@@ -156,8 +158,8 @@ Per modifiche al database aggiungi una nuova migrazione conservativa e applicala
 
 | Sintomo | Controllo |
 | --- | --- |
-| 503 “Configurazione incompleta” | APP_PASSWORD assente, troppo corta o configurata nell'ambiente sbagliato; ripeti il deploy dopo averla salvata. |
-| Richiesta continua di credenziali | Utente casa, password corretta, nessuno spazio aggiunto. Prova una sessione privata. |
+| 503 “Configurazione incompleta” | APP_PASSWORD assente, vuota o configurata nell'ambiente sbagliato; ripeti il deploy dopo averla salvata. |
+| Richiesta continua di credenziali | Password corretta, nessuno spazio aggiunto. Prova una sessione privata. |
 | Pagina visibile, dati non disponibili | Binding DB assente, database sbagliato o SQL non eseguito. Guarda i log Functions senza pubblicare credenziali. |
 | “no such table” nei log | Esegui migrations/0001_init.sql sul database collegato al binding DB. |
 | Homepage 404 | Output deve essere public e public/index.html deve esistere nel repository. |
@@ -175,4 +177,3 @@ Per modifiche al database aggiungi una nuova migrazione conservativa e applicala
 - [Caricare file su GitHub](https://docs.github.com/en/repositories/working-with-files/managing-files/adding-a-file-to-a-repository)
 
 Guida verificata il 22 settembre 2026. Le etichette del pannello possono cambiare; binding DB e secret APP_PASSWORD sono i nomi richiesti dal codice.
-
