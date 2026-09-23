@@ -23,6 +23,7 @@ import {
   Home,
   LayoutDashboard,
   Plus,
+  Pencil,
   Refrigerator,
   Search,
   Settings2,
@@ -97,6 +98,7 @@ type Room = {
   id: number;
   name: string;
   color: string;
+  sort_order: number;
 };
 
 type AssetType = {
@@ -521,7 +523,9 @@ export function CasaApp() {
         perform={perform}
       />
       <AssetSheet
-        asset={selectedAsset}
+        asset={data.assets.find(asset => asset.id === selectedAsset?.id) ?? null}
+        data={data}
+        perform={perform}
         tasks={data.tasks}
         logs={data.logs}
         onClose={() => setSelectedAsset(null)}
@@ -1024,6 +1028,7 @@ function PlanView({
                     <span className="text-xs font-semibold text-[#557178]">
                       {dueLabel(task.days_until_due)}
                     </span>
+                    <EditRecord kind="task" record={task} perform={perform} />
                     <DeleteButton name={task.name} description="La manutenzione e il suo storico verranno eliminati." onDelete={() => perform("delete_task", { id: task.id }, "Manutenzione eliminata")} />
                     <Button
                       size="sm"
@@ -1069,6 +1074,7 @@ function HistoryView({ logs, perform }: { logs: Log[]; perform: Perform }) {
                 </time>
                 <div>
                   <div className="flex items-center justify-between gap-3"><strong className="text-[#173940]">{log.task_name}</strong>
+                    <EditRecord kind="log" record={log} perform={perform} />
                     <DeleteButton name={log.task_name} description="Verrà eliminata solo questa registrazione. Le date della manutenzione non cambieranno." onDelete={() => perform("delete_log", { id: log.id }, "Registrazione eliminata")} />
                   </div>
                   <p className="mt-1 text-sm text-[#6f858a]">{log.asset_name}</p>
@@ -1092,6 +1098,85 @@ function HistoryView({ logs, perform }: { logs: Log[]; perform: Perform }) {
   );
 }
 
+
+
+type EditKind = "asset" | "room" | "asset_type" | "template" | "task" | "log";
+type EditField = { name: string; label: string; type?: string; required?: boolean; min?: number; max?: number; maxLength?: number; options?: { id: string | number; name: string }[] };
+
+function EditRecord({ kind, record, data, perform }: {
+  kind: EditKind;
+  record: Asset | Room | AssetType | MaintenanceTemplate | Task | Log;
+  data?: CasaData;
+  perform: Perform;
+}) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const values = record as unknown as Record<string, string | number | null>;
+  const title = { asset: "elemento", room: "stanza", asset_type: "tipo", template: "attività standard", task: "manutenzione", log: "registrazione" }[kind];
+  const fields: EditField[] = [];
+  if (kind !== "log") fields.push({ name: "name", label: "Nome", required: true, maxLength: kind === "room" ? 80 : kind === "asset_type" ? 100 : 120 });
+  if (kind === "asset") fields.push(
+    { name: "room_id", label: "Stanza", options: [{ id: "", name: "Senza stanza" }, ...(data?.rooms ?? [])] },
+    { name: "asset_type_id", label: "Tipo", options: [{ id: "", name: "Nessun tipo" }, ...(data?.assetTypes ?? [])] },
+    { name: "category", label: "Categoria", maxLength: 80 },
+    { name: "brand", label: "Marca", maxLength: 80 },
+    { name: "model", label: "Modello", maxLength: 80 },
+    { name: "installed_at", label: "Data installazione", type: "date" },
+  );
+  if (kind === "room") fields.push(
+    { name: "color", label: "Colore", type: "color", required: true },
+    { name: "sort_order", label: "Ordine", type: "number", min: 0, required: true },
+  );
+  if (kind === "asset_type") fields.push(
+    { name: "category", label: "Categoria", maxLength: 80 },
+    { name: "icon", label: "Icona", options: Object.keys(iconMap).map(id => ({ id, name: ({ "washing-machine": "Lavatrice", sparkles: "Pulizia", coffee: "Caffè", snowflake: "Climatizzazione", flame: "Riscaldamento", refrigerator: "Frigorifero", "cooking-pot": "Cucina", wind: "Ventilazione", wrench: "Generica" } as Record<string, string>)[id] })) },
+  );
+  if (kind === "template") fields.push({ name: "asset_type_id", label: "Tipo di elemento", required: true, options: data?.assetTypes ?? [] });
+  if (kind === "template" || kind === "task") fields.push(
+    { name: "interval_days", label: "Frequenza (giorni)", type: "number", min: 1, max: 36500, required: true },
+    { name: "warning_days", label: "Preavviso (giorni)", type: "number", min: 0, required: true },
+  );
+  if (kind === "task") fields.push({ name: "next_due_at", label: "Prossima scadenza", type: "date", required: true });
+  if (kind === "log") fields.push({ name: "completed_at", label: "Data intervento", type: "date", required: true });
+  if (["asset", "template", "task", "log"].includes(kind)) fields.push({ name: "notes", label: "Note", type: "textarea", maxLength: 1000 });
+  const description = kind === "log"
+    ? "Se la data dell'ultimo intervento cambia, ultima esecuzione e prossima scadenza vengono ricalcolate. Le sole note non cambiano le scadenze."
+    : kind === "template" || kind === "asset_type"
+      ? "Le manutenzioni già create non vengono modificate."
+      : kind === "task"
+        ? "La prossima scadenza è quella che scegli qui. Lo storico degli interventi resta invariato."
+        : "Aggiorna i dettagli e salva le modifiche.";
+  return <Dialog open={open} onOpenChange={value => { if (!saving) setOpen(value); }}>
+    <Button type="button" variant="ghost" size="sm" title={`Modifica ${values.name ?? values.task_name}`} onClick={() => setOpen(true)} className="shrink-0 text-[#176a60]">
+      <Pencil className="size-4" /><span>Modifica</span>
+    </Button>
+    <DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-lg">
+      <DialogHeader><DialogTitle>Modifica {title}</DialogTitle><DialogDescription>{description}</DialogDescription></DialogHeader>
+      <form onSubmit={async event => {
+        event.preventDefault();
+        const payload = { ...toPayload(event.currentTarget), id: record.id };
+        setSaving(true);
+        try { if (await perform("update_" + kind, payload, "Modifiche salvate")) setOpen(false); }
+        finally { setSaving(false); }
+      }}>
+        <fieldset disabled={saving} className="space-y-4">
+          {fields.map(field => <label key={field.name} className="block space-y-2 text-sm text-[#35565d]">
+            <span className="font-medium">{field.label}</span>
+            {field.options ? <select name={field.name} defaultValue={String(values[field.name] ?? "")} required={field.required} className="h-10 w-full rounded-lg border bg-white px-3">
+              {field.options.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
+            </select> : field.type === "textarea"
+              ? <Textarea name={field.name} defaultValue={String(values[field.name] ?? "")} maxLength={field.maxLength} />
+              : <Input name={field.name} type={field.type ?? "text"} defaultValue={String(values[field.name] ?? "")} required={field.required} min={field.min} max={field.max} step={field.type === "number" ? 1 : undefined} maxLength={field.maxLength} />}
+          </label>)}
+          <DialogFooter className="mt-5">
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annulla</Button>
+            <Button type="submit" className="bg-[#103c44]">{saving ? "Salvataggio…" : "Salva"}</Button>
+          </DialogFooter>
+        </fieldset>
+      </form>
+    </DialogContent>
+  </Dialog>;
+}
 
 function DeleteButton({ name, description, onDelete }: { name: string; description: string; onDelete: () => Promise<boolean> }) {
   const [open, setOpen] = useState(false);
@@ -1166,7 +1251,7 @@ function CatalogView({
                     {type.category ?? "Altro"} · {type.template_count} attività
                   </span>
                 </div>
-                <div className="ml-auto"><DeleteButton name={type.name} description="Il tipo e i suoi modelli standard verranno eliminati. Gli elementi e le manutenzioni già create resteranno disponibili, senza questo tipo." onDelete={() => perform("delete_asset_type", { id: type.id }, "Tipo eliminato")} /></div>
+                <div className="ml-auto flex"><EditRecord kind="asset_type" record={type} perform={perform} /><DeleteButton name={type.name} description="Il tipo e i suoi modelli standard verranno eliminati. Gli elementi e le manutenzioni già create resteranno disponibili, senza questo tipo." onDelete={() => perform("delete_asset_type", { id: type.id }, "Tipo eliminato")} /></div>
               </div>
             ))}
           </div>
@@ -1202,6 +1287,7 @@ function CatalogView({
                   </span>
                   <span className="text-[#61797f]">
                     {template.warning_days} gg
+                    <EditRecord kind="template" record={template} data={data} perform={perform} />
                     <DeleteButton name={template.name} description="Il modello standard verrà eliminato. Le manutenzioni già create non cambieranno." onDelete={() => perform("delete_template", { id: template.id }, "Attività standard eliminata")} />
                   </span>
                 </div>
@@ -1214,7 +1300,8 @@ function CatalogView({
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {data.rooms.map(room => <div key={room.id} className="flex items-center justify-between gap-3 rounded-2xl border bg-white p-4">
               <strong>{room.name}</strong>
-              <DeleteButton name={room.name} description="La stanza verrà eliminata. Gli elementi resteranno disponibili come «Senza stanza»." onDelete={() => perform("delete_room", { id: room.id }, "Stanza eliminata")} />
+              <div className="flex"><EditRecord kind="room" record={room} perform={perform} />
+              <DeleteButton name={room.name} description="La stanza verrà eliminata. Gli elementi resteranno disponibili come «Senza stanza»." onDelete={() => perform("delete_room", { id: room.id }, "Stanza eliminata")} /></div>
             </div>)}
           </div>
           {!data.rooms.length && <p className="mt-4 text-sm text-[#61797f]">Nessuna stanza. Aggiungi solo quelle che ti servono.</p>}
@@ -1660,7 +1747,11 @@ function AssetSheet({
   onClose,
   onComplete,
   onDelete,
+  data,
+  perform,
 }: {
+  data: CasaData;
+  perform: Perform;
   asset: Asset | null;
   tasks: Task[];
   logs: Log[];
@@ -1691,6 +1782,7 @@ function AssetSheet({
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-7 p-6">
+              <EditRecord kind="asset" record={asset} data={data} perform={perform} />
               <section>
                 <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-[#71878c]">
                   Dettagli
@@ -1732,6 +1824,7 @@ function AssetSheet({
                             {dueLabel(task.days_until_due)}
                           </p>
                         </div>
+                        <EditRecord kind="task" record={task} perform={perform} />
                         <Button
                           size="sm"
                           variant="outline"

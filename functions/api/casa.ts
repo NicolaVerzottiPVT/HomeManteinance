@@ -35,6 +35,12 @@ function validDate(value: unknown, fallback = isoDate()) {
   return /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : fallback;
 }
 
+function isRealDate(value: unknown) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value < "0001-01-01") return false;
+  const date = new Date(value + "T12:00:00Z");
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
 function addDays(date: string, days: number) {
   const value = new Date(`${date}T12:00:00Z`);
   value.setUTCDate(value.getUTCDate() + days);
@@ -123,7 +129,63 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const action = textValue(body.action, 40);
     const db = env.DB;
 
-    if (["delete_room", "delete_asset_type", "delete_template", "delete_log"].includes(action)) {
+    const updateTables: Record<string, string> = {
+      update_asset: "assets", update_room: "rooms", update_asset_type: "asset_types",
+      update_template: "maintenance_templates", update_task: "maintenance_tasks", update_log: "maintenance_logs",
+    };
+    if (Object.hasOwn(updateTables, action)) {
+      const id = positiveInteger(body.id);
+      if (!id) return errorResponse("Identificativo non valido.");
+      const exists = await db.prepare("SELECT id FROM " + updateTables[action] + " WHERE id = ?").bind(id).first();
+      if (!exists) return errorResponse("Elemento non trovato.", 404);
+      if (action !== "update_log" && !textValue(body.name)) return errorResponse("Inserisci un nome.");
+      if (action === "update_task" || action === "update_template") {
+        const interval = positiveInteger(body.interval_days);
+        if (!interval || interval > 36500 || body.warning_days === "" || !Number.isSafeInteger(Number(body.warning_days)) || Number(body.warning_days) < 0)
+          return errorResponse("Frequenza e preavviso non validi.");
+      }
+      if (action === "update_task" && !isRealDate(body.next_due_at)) return errorResponse("Scadenza non valida.");
+      if (action === "update_log" && !isRealDate(body.completed_at)) return errorResponse("Data intervento non valida.");
+      if (action === "update_asset" && body.installed_at && !isRealDate(body.installed_at)) return errorResponse("Data installazione non valida.");
+      if (action === "update_room" && (!/^#[0-9a-f]{6}$/i.test(String(body.color)) || body.sort_order === "" || !Number.isSafeInteger(Number(body.sort_order)) || Number(body.sort_order) < 0))
+        return errorResponse("Colore o ordine non valido.");
+      const references = action === "update_asset" ? [["room_id", "rooms"], ["asset_type_id", "asset_types"]] : action === "update_template" ? [["asset_type_id", "asset_types"]] : [];
+      for (const [field, table] of references) {
+        if (action === "update_asset" && (body[field] === "" || body[field] == null)) continue;
+        const ref = positiveInteger(body[field]);
+        if (!ref || !await db.prepare("SELECT id FROM " + table + " WHERE id = ?").bind(ref).first())
+          return errorResponse("La stanza o il tipo selezionato non è più disponibile.");
+      }
+    }
+
+    if (action === "update_room") {
+      await db.prepare("UPDATE rooms SET name = ?, color = ?, sort_order = ? WHERE id = ?")
+        .bind(textValue(body.name, 80), body.color, Number(body.sort_order), Number(body.id)).run();
+    } else if (action === "update_asset_type") {
+      await db.prepare("UPDATE asset_types SET name = ?, category = ?, icon = ? WHERE id = ?")
+        .bind(textValue(body.name, 100), optionalText(body.category, 80), textValue(body.icon, 40) || "wrench", Number(body.id)).run();
+    } else if (action === "update_template") {
+      await db.prepare("UPDATE maintenance_templates SET asset_type_id = ?, name = ?, interval_days = ?, warning_days = ?, notes = ? WHERE id = ?")
+        .bind(Number(body.asset_type_id), textValue(body.name, 120), Number(body.interval_days), Number(body.warning_days), optionalText(body.notes), Number(body.id)).run();
+    } else if (action === "update_log") {
+      const logId = Number(body.id);
+      // Calculate the effective newest date from the entire history, not the 80 displayed rows.
+      // Both statements run in one D1 transaction. Notes-only edits preserve manual due dates.
+      await db.batch([
+        db.prepare(`UPDATE maintenance_tasks SET
+          next_due_at = CASE WHEN
+            (SELECT MAX(completed_at) FROM maintenance_logs WHERE task_id = maintenance_tasks.id)
+            IS NOT
+            (SELECT MAX(CASE WHEN id = ? THEN ? ELSE completed_at END) FROM maintenance_logs WHERE task_id = maintenance_tasks.id)
+          THEN date((SELECT MAX(CASE WHEN id = ? THEN ? ELSE completed_at END) FROM maintenance_logs WHERE task_id = maintenance_tasks.id), '+' || interval_days || ' days')
+          ELSE next_due_at END,
+          last_completed_at = (SELECT MAX(CASE WHEN id = ? THEN ? ELSE completed_at END) FROM maintenance_logs WHERE task_id = maintenance_tasks.id)
+          WHERE id = (SELECT task_id FROM maintenance_logs WHERE id = ?)`)
+          .bind(logId, body.completed_at, logId, body.completed_at, logId, body.completed_at, logId),
+        db.prepare("UPDATE maintenance_logs SET completed_at = ?, notes = ? WHERE id = ?")
+          .bind(body.completed_at, optionalText(body.notes), logId),
+      ]);
+    } else if (["delete_room", "delete_asset_type", "delete_template", "delete_log"].includes(action)) {
       const id = positiveInteger(body.id);
       if (!id) return errorResponse("Elemento non valido.");
       const statements: Record<string, string> = {
@@ -332,6 +394,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       error instanceof Error && error.message.includes("UNIQUE")
         ? "Esiste già un elemento con questo nome."
         : "Non è stato possibile salvare la modifica.";
-    return errorResponse(message, 500);
+    return errorResponse(message, error instanceof Error && error.message.includes("UNIQUE") ? 409 : 500);
   }
 }
