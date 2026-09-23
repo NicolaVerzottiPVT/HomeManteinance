@@ -1,5 +1,14 @@
 # Verifica Domio — 22 settembre 2026
 
+## Verifica aggiuntiva — 23 settembre 2026
+
+Aggiunti moduli precompilati di modifica per elementi, stanze, tipi, modelli,
+manutenzioni e registrazioni. Verificati TypeScript, build e salvataggi di tutte
+le categorie nel runtime Pages con D1 locale. Verificate le correzioni delle date
+dello storico (intervento precedente, ultimo intervento spostato prima/dopo),
+la conservazione della scadenza manuale per modifiche alle sole note e il rifiuto
+di date, frequenze, riferimenti e identificativi non validi. Nessuna migrazione SQL.
+
 Consegna per Cloudflare Pages e D1. Nessuna pubblicazione o modifica agli account esterni.
 
 ## Aggiornamento

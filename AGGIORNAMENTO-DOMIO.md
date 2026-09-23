@@ -1,5 +1,21 @@
 # Aggiornare a Domio
 
+## Aggiornamento del 23 settembre: modifica dei dati
+
+È disponibile **Modifica** nella scheda elemento, in Pianificazione, nel Registro
+e nelle tre schede del Catalogo. I campi sono precompilati: **Salva** applica le
+modifiche e **Annulla** le scarta.
+
+La modifica di un tipo o di un modello non cambia le manutenzioni già create.
+Per le manutenzioni puoi scegliere esplicitamente la prossima scadenza.
+Correggendo la data di una registrazione, il sistema considera tutto lo storico:
+se cambia la data dell'intervento più recente, ricalcola ultima esecuzione e
+prossima scadenza con la frequenza attuale. Modificare soltanto le note, o una
+data precedente che rimane precedente, conserva la scadenza impostata.
+
+Per pubblicare aggiorna **functions/**, **public/** e i sorgenti **frontend/**.
+Non serve nuovo SQL: mantieni database, binding e password.
+
 Il nome dell'applicazione ora è **Domio**. La cartella locale resta casa-cura-pages per continuità: non devi rinominare repository, progetto Cloudflare o database, né cambiare indirizzo.
 
 ## Se hai già pubblicato la versione precedente
@@ -29,4 +45,3 @@ Le installazioni nuove partono vuote: nessun catalogo viene creato automaticamen
 
 Accedi, elimina un tipo standard che non ti serve e ricarica la pagina: deve restare eliminato.
 Controlla che i tuoi elementi siano ancora presenti. Prova Esci e accedi nuovamente con la sola password.
-
