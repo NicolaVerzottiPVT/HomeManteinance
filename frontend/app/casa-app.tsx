@@ -209,6 +209,7 @@ function formatDate(value: string | null, long = false) {
 }
 
 function formatInterval(days: number) {
+  if (days === 0) return "Senza scadenza";
   if (days % 365 === 0) {
     const years = days / 365;
     return years === 1 ? "Ogni anno" : `Ogni ${years} anni`;
@@ -229,8 +230,13 @@ function dueLabel(days: number | null) {
   return `Tra ${days} giorni`;
 }
 
+function taskDueLabel(task: Task) {
+  return task.interval_days === 0 ? "Senza scadenza" : dueLabel(task.days_until_due);
+}
+
 function taskTone(task: Task) {
-  if (task.days_until_due === null) return "warning";
+  if (task.interval_days === 0) return "good";
+  if (task.interval_days > 0 && task.days_until_due === null) return "warning";
   if (task.days_until_due !== null && task.days_until_due < 0) return "danger";
   if (task.days_until_due !== null && task.days_until_due <= task.warning_days) return "warning";
   return "good";
@@ -328,7 +334,7 @@ export function CasaApp() {
   const healthy = scheduledCount - overdue.length - dueNow.length;
   const healthScore = scheduledCount
     ? Math.round(((scheduledCount - overdue.length) / scheduledCount) * 100)
-    : 0;
+    : null;
 
   const openComplete = (task: Task) => {
     setSelectedTask(task);
@@ -574,7 +580,7 @@ function TodayView({
   overdue: Task[];
   dueNow: Task[];
   healthy: number;
-  score: number;
+  score: number | null;
   onComplete: (task: Task) => void;
   onAddAsset: () => void;
   onAddTask: () => void;
@@ -634,12 +640,12 @@ function TodayView({
 
   return (
     <div className="space-y-6">
-      {data.tasks.some(task => task.days_until_due === null) && <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+      {data.tasks.some(task => task.interval_days > 0 && task.days_until_due === null) && <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
         <h2 className="font-bold text-[#12343b]">Completa le date iniziali</h2>
         <p className="mt-1 text-sm text-[#61797f]">Le attività del tipo sono pronte. Inserisci l'ultima esecuzione per calcolare le scadenze reali.</p>
-        <div className="mt-3 space-y-2">{data.tasks.filter(task => task.days_until_due === null).map(task =>
+        <div className="mt-3 space-y-2">{data.tasks.filter(task => task.interval_days > 0 && task.days_until_due === null).map(task =>
           <div key={task.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white p-3">
-            <span className="text-sm">{task.asset_name} · {task.name}</span><LastDateButton task={task} perform={perform} />
+            <span className="text-sm">{task.asset_name} · {task.name}</span>{task.interval_days > 0 && <LastDateButton task={task} perform={perform} />}
           </div>)}</div>
       </section>}
       <section className="grid gap-4 lg:grid-cols-[1.35fr_.65fr]">
@@ -662,13 +668,13 @@ function TodayView({
             <div
               className="relative grid size-32 shrink-0 place-items-center rounded-full"
               style={{
-                background: `conic-gradient(#42dbc3 ${score}%, rgba(255,255,255,.12) 0)`,
+                background: `conic-gradient(#42dbc3 ${score ?? 0}%, rgba(255,255,255,.12) 0)`,
               }}
             >
               <div className="grid size-[106px] place-items-center rounded-full bg-[#10333a] text-center">
                 <div>
                   <strong className="block text-3xl tracking-[-0.05em]">
-                    {score}%
+                    {score === null ? "—" : `${score}%`}
                   </strong>
                   <span className="text-[11px] uppercase tracking-[0.12em] text-white/45">
                     indice cura
@@ -823,7 +829,7 @@ function TaskRow({
             <span
               className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${toneClass}`}
             >
-              {dueLabel(task.days_until_due)}
+              {taskDueLabel(task)}
             </span>
           </div>
           <p className="mt-1 truncate text-xs text-[#74888d]">
@@ -981,7 +987,7 @@ function PlanView({
   perform: Perform;
 }) {
   const groups = [
-    { label: "Da impostare", tone: "warning", tasks: tasks.filter(task => task.days_until_due === null) },
+    { label: "Da impostare", tone: "warning", tasks: tasks.filter(task => task.interval_days > 0 && task.days_until_due === null) },
     {
       label: "Scadute",
       tone: "danger",
@@ -1007,6 +1013,7 @@ function PlanView({
         <h2 className="mt-1 text-3xl font-bold tracking-[-0.045em] text-[#12343b]">
           Tutte le scadenze, in ordine.
         </h2>
+        {tasks.some(task => task.interval_days === 0) && <p className="mt-2 text-sm text-[#61797f]">Le attività senza scadenza sono nelle schede degli elementi: puoi registrarne gli interventi quando serve.</p>}
       </div>
       <div className="mt-7 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
         {groups.map((group) => (
@@ -1041,9 +1048,9 @@ function PlanView({
                   </div>
                   <div className="mt-4 flex flex-wrap items-center gap-2">
                     <span className="text-xs font-semibold text-[#557178]">
-                      {dueLabel(task.days_until_due)}
+                      {taskDueLabel(task)}
                     </span>
-                    <LastDateButton task={task} perform={perform} />
+                    {task.interval_days > 0 && <LastDateButton task={task} perform={perform} />}
                     <EditRecord kind="task" record={task} perform={perform} />
                     <DeleteButton name={task.name} description="La manutenzione e il suo storico verranno eliminati." onDelete={() => perform("delete_task", { id: task.id }, "Manutenzione eliminata")} />
                     <Button
@@ -1127,6 +1134,7 @@ function EditRecord({ kind, record, data, perform }: {
 }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(Number((record as unknown as { interval_days?: number }).interval_days) === 0 ? "log" : "periodic");
   const values = record as unknown as Record<string, string | number | null>;
   const title = { asset: "elemento", room: "stanza", asset_type: "tipo", template: "attività standard", task: "manutenzione", log: "registrazione" }[kind];
   const fields: EditField[] = [];
@@ -1148,24 +1156,24 @@ function EditRecord({ kind, record, data, perform }: {
     { name: "icon", label: "Icona", options: Object.keys(iconMap).map(id => ({ id, name: ({ "washing-machine": "Lavatrice", sparkles: "Pulizia", coffee: "Caffè", snowflake: "Climatizzazione", flame: "Riscaldamento", refrigerator: "Frigorifero", "cooking-pot": "Cucina", wind: "Ventilazione", wrench: "Generica" } as Record<string, string>)[id] })) },
   );
   if (kind === "template") fields.push({ name: "asset_type_id", label: "Tipo di elemento", required: true, options: data?.assetTypes ?? [] });
-  if (kind === "template" || kind === "task") fields.push(
+  if ((kind === "template" || kind === "task") && scheduleMode === "periodic") fields.push(
     { name: "interval_days", label: "Frequenza (giorni)", type: "number", min: 1, max: 36500, required: true },
     { name: "warning_days", label: "Preavviso (giorni)", type: "number", min: 0, required: true },
   );
-  if (kind === "task") fields.push({ name: "next_due_at", label: "Prossima scadenza", type: "date", required: true });
+  if (kind === "task" && scheduleMode === "periodic") fields.push({ name: "next_due_at", label: "Prossima scadenza", type: "date", required: true });
   if (kind === "log") fields.push({ name: "completed_at", label: "Data intervento", type: "date", required: true });
   if (["asset", "template", "task", "log"].includes(kind)) fields.push({ name: "notes", label: "Note", type: "textarea", maxLength: 1000 });
   const description = kind === "log"
-    ? "Se la data dell'ultimo intervento cambia, ultima esecuzione e prossima scadenza vengono ricalcolate. Le sole note non cambiano le scadenze."
+    ? "La data viene aggiornata nel registro. Per le attività periodiche viene ricalcolata la scadenza se cambia l'ultimo intervento. Le sole note non cambiano le scadenze."
     : kind === "template" || kind === "asset_type"
       ? "Le manutenzioni già create non vengono modificate."
       : kind === "task"
-        ? "La prossima scadenza è quella che scegli qui. Lo storico degli interventi resta invariato."
+        ? (scheduleMode === "log" ? "Conserva gli interventi senza frequenza né scadenza. Lo storico resta invariato." : "La prossima scadenza è quella che scegli qui. Lo storico degli interventi resta invariato.")
         : kind === "asset"
           ? "Quando associ un tipo diverso, le attività mancanti vengono create automaticamente. Quelle esistenti restano disponibili."
           : "Aggiorna i dettagli e salva le modifiche.";
   return <Dialog open={open} onOpenChange={value => { if (!saving) setOpen(value); }}>
-    <Button type="button" variant="ghost" size="sm" title={`Modifica ${values.name ?? values.task_name}`} onClick={() => setOpen(true)} className="shrink-0 text-[#176a60]">
+    <Button type="button" variant="ghost" size="sm" title={`Modifica ${values.name ?? values.task_name}`} onClick={() => { setScheduleMode(Number(values.interval_days) === 0 ? "log" : "periodic"); setOpen(true); }} className="shrink-0 text-[#176a60]">
       <Pencil className="size-4" /><span>Modifica</span>
     </Button>
     <DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-lg">
@@ -1178,13 +1186,14 @@ function EditRecord({ kind, record, data, perform }: {
         finally { setSaving(false); }
       }}>
         <fieldset disabled={saving} className="space-y-4">
+          {(kind === "task" || kind === "template") && <ScheduleModePicker value={scheduleMode} onChange={setScheduleMode} />}
           {fields.map(field => <label key={field.name} className="block space-y-2 text-sm text-[#35565d]">
             <span className="font-medium">{field.label}</span>
             {field.options ? <select name={field.name} defaultValue={String(values[field.name] ?? "")} required={field.required} className="h-10 w-full rounded-lg border bg-white px-3">
               {field.options.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
             </select> : field.type === "textarea"
               ? <Textarea name={field.name} defaultValue={String(values[field.name] ?? "")} maxLength={field.maxLength} />
-              : <Input name={field.name} type={field.type ?? "text"} defaultValue={String(values[field.name] ?? "")} required={field.required} min={field.min} max={field.max} step={field.type === "number" ? 1 : undefined} maxLength={field.maxLength} />}
+              : <Input name={field.name} type={field.type ?? "text"} defaultValue={String(field.name === "interval_days" && Number(values.interval_days) === 0 ? 90 : values[field.name] ?? "")} required={field.required} min={field.min} max={field.max} step={field.type === "number" ? 1 : undefined} maxLength={field.maxLength} />}
           </label>)}
           <DialogFooter className="mt-5">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annulla</Button>
@@ -1304,7 +1313,7 @@ function CatalogView({
                     {formatInterval(template.interval_days)}
                   </span>
                   <span className="text-[#61797f]">
-                    {template.warning_days} gg
+                    {template.interval_days === 0 ? "—" : `${template.warning_days} gg`}
                     <EditRecord kind="template" record={template} data={data} perform={perform} />
                     <DeleteButton name={template.name} description="Il modello standard verrà eliminato. Le manutenzioni già create non cambieranno." onDelete={() => perform("delete_template", { id: template.id }, "Attività standard eliminata")} />
                   </span>
@@ -1457,6 +1466,34 @@ function AssetDialog({
   );
 }
 
+
+type ScheduleMode = "periodic" | "log";
+
+function ScheduleModePicker({ value, onChange }: { value: ScheduleMode; onChange: (value: ScheduleMode) => void }) {
+  return <label className="block space-y-2 text-sm text-[#35565d]">
+    <span className="font-medium">Gestione dell'attività</span>
+    <select name="schedule_mode" value={value} onChange={event => onChange(event.target.value as ScheduleMode)} className="h-10 w-full rounded-lg border bg-white px-3">
+      <option value="periodic">Periodica</option>
+      <option value="log">Solo registro, senza scadenza</option>
+    </select>
+    {value === "log" && <span className="block text-xs leading-5 text-[#61797f]">Registra quando lo fai, ad esempio cambio batteria o gomme. Nessuna frequenza, preavviso o prossima scadenza.</span>}
+  </label>;
+}
+
+function ScheduleOptions({ withDueDate = false }: { withDueDate?: boolean }) {
+  const [mode, setMode] = useState<ScheduleMode>("periodic");
+  return <div className="space-y-4">
+    <ScheduleModePicker value={mode} onChange={setMode} />
+    {mode === "periodic" && <>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Frequenza (giorni)"><Input name="interval_days" type="number" min="1" max="36500" step="1" defaultValue="90" required /></Field>
+        <Field label="Preavviso (giorni)"><Input name="warning_days" type="number" min="0" step="1" defaultValue="14" required /></Field>
+      </div>
+      {withDueDate && <Field label="Prima scadenza"><Input name="next_due_at" type="date" /></Field>}
+    </>}
+  </div>;
+}
+
 function TaskDialog({
   open,
   assets,
@@ -1481,7 +1518,7 @@ function TaskDialog({
       open={open}
       onClose={onClose}
       title="Nuova manutenzione"
-      description="Definisci frequenza, preavviso e prima scadenza."
+      description="Scegli se programmare le scadenze o conservare solo gli interventi."
     >
       <form onSubmit={submit} className="space-y-4">
         <Field label="Elemento">
@@ -1501,28 +1538,7 @@ function TaskDialog({
         <Field label="Attività">
           <Input name="name" placeholder="Es. Pulizia filtro" required />
         </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Frequenza (giorni)">
-            <Input
-              name="interval_days"
-              type="number"
-              min="1"
-              defaultValue="90"
-              required
-            />
-          </Field>
-          <Field label="Preavviso (giorni)">
-            <Input
-              name="warning_days"
-              type="number"
-              min="0"
-              defaultValue="14"
-            />
-          </Field>
-        </div>
-        <Field label="Prima scadenza">
-          <Input name="next_due_at" type="date" />
-        </Field>
+        <ScheduleOptions withDueDate />
         <Field label="Note">
           <Textarea name="notes" placeholder="Indicazioni o materiali utili" />
         </Field>
@@ -1531,7 +1547,7 @@ function TaskDialog({
             Annulla
           </Button>
           <Button type="submit" className="bg-[#103c44]">
-            Programma
+            Aggiungi
           </Button>
         </DialogFooter>
       </form>
@@ -1563,7 +1579,7 @@ function CompleteDialog({
     <FormDialog
       open={open}
       onClose={onClose}
-      title="Segna come completata"
+      title={task?.interval_days === 0 ? "Registra intervento" : "Segna come completata"}
       description={
         task
           ? `${task.name} · ${task.asset_name}`
@@ -1587,8 +1603,9 @@ function CompleteDialog({
         </Field>
         {task && (
           <div className="rounded-2xl bg-[#edf8f6] p-4 text-sm text-[#456d68]">
-            La prossima scadenza sarà calcolata automaticamente{" "}
-            {formatInterval(task.interval_days).toLocaleLowerCase("it")}.
+            {task.interval_days === 0
+              ? "L'intervento resterà nel Registro e aggiornerà l'ultima esecuzione. Non verrà creata alcuna scadenza."
+              : `La prossima scadenza sarà calcolata automaticamente ${formatInterval(task.interval_days).toLocaleLowerCase("it")}.`}
           </div>
         )}
         <DialogFooter>
@@ -1717,7 +1734,7 @@ function TemplateDialog({
       open={open}
       onClose={onClose}
       title="Nuova attività standard"
-      description="Definisci una regola da riutilizzare sui nuovi elementi."
+      description="Crea un'attività periodica o un promemoria senza scadenza per gli elementi del tipo."
     >
       <form
         className="space-y-4"
@@ -1747,25 +1764,7 @@ function TemplateDialog({
         <Field label="Attività">
           <Input name="name" placeholder="Es. Controllo guarnizioni" required />
         </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Frequenza (giorni)">
-            <Input
-              name="interval_days"
-              type="number"
-              min="1"
-              defaultValue="90"
-              required
-            />
-          </Field>
-          <Field label="Preavviso (giorni)">
-            <Input
-              name="warning_days"
-              type="number"
-              min="0"
-              defaultValue="14"
-            />
-          </Field>
-        </div>
+        <ScheduleOptions />
         <Field label="Note">
           <Textarea name="notes" placeholder="Facoltative" />
         </Field>
@@ -1849,7 +1848,7 @@ function AssetSheet({
               </section>
               <section>
                 <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-[#71878c]">
-                  Manutenzioni
+                  Attività
                 </h3>
                 <div className="mt-3 space-y-2">
                   {assetTasks.map((task) => (
@@ -1863,11 +1862,12 @@ function AssetSheet({
                             {task.name}
                           </strong>
                           <p className="mt-1 text-xs text-[#75898e]">
-                            {formatInterval(task.interval_days)} ·{" "}
-                            {dueLabel(task.days_until_due)}
+                            {task.interval_days === 0
+                              ? `Senza scadenza · Ultimo intervento: ${task.last_completed_at ? formatDate(task.last_completed_at, true) : "mai registrato"}`
+                              : `${formatInterval(task.interval_days)} · ${taskDueLabel(task)}`}
                           </p>
                         </div>
-                        <LastDateButton task={task} perform={perform} />
+                        {task.interval_days > 0 && <LastDateButton task={task} perform={perform} />}
                         <EditRecord kind="task" record={task} perform={perform} />
                         <Button
                           size="sm"
@@ -1875,14 +1875,14 @@ function AssetSheet({
                           onClick={() => onComplete(task)}
                           className="rounded-xl text-[#176a60]"
                         >
-                          <Check className="size-4" /> Fatto
+                          <Check className="size-4" /> {task.interval_days === 0 ? "Registra intervento" : "Fatto"}
                         </Button>
                       </div>
                     </div>
                   ))}
                   {!assetTasks.length && (
                     <p className="rounded-2xl bg-[#f4f7f8] p-4 text-sm text-[#73878c]">
-                      Nessuna manutenzione programmata.
+                      Nessuna attività associata.
                     </p>
                   )}
                 </div>

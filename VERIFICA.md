@@ -1,5 +1,18 @@
 # Verifica Domio — 22 settembre 2026
 
+## Attività senza scadenza — 16 ottobre 2026
+
+Aggiunta la modalità Solo registro a modelli standard e attività singole, anche
+in modifica. Nessuna variazione allo schema SQL o alle dipendenze del progetto.
+Le attività di registro non appaiono nelle scadenze o fra le date da impostare
+e non influiscono sull'indice di cura; restano nelle schede e nel Registro.
+
+Superati controllo TypeScript, build e test nel runtime Pages con D1 locale:
+creazione senza frequenza/preavviso, generazione dal tipo, interventi ripetuti
+e retrodatati, correzione dello storico senza creare scadenze, conversione
+periodica/registro con storico conservato, indipendenza dei modelli dalle attività
+già create, input non validi, asset compilati e regressione delle modifiche.
+
 ## Correzione attività automatiche — 16 ottobre 2026
 
 Generazione automatica dei modelli del tipo nella creazione dell'elemento

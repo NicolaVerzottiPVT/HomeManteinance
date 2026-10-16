@@ -64,6 +64,17 @@ function missingTasksStatement(db: D1Database, assetId?: number) {
   return assetId === undefined ? statement : statement.bind(assetId);
 }
 
+// Zero interval represents an on-demand log entry; it never has a due date.
+function readSchedule(body: Payload) {
+  const mode = body.schedule_mode ?? "periodic";
+  if (mode === "log") return { intervalDays: 0, warningDays: 0 };
+  if (mode !== "periodic") return null;
+  const interval = Number(body.interval_days), warning = Number(body.warning_days ?? 14);
+  if (!Number.isSafeInteger(interval) || interval < 1 || interval > 36500 ||
+      body.warning_days === "" || !Number.isSafeInteger(warning) || warning < 0) return null;
+  return { intervalDays: interval, warningDays: warning };
+}
+
 async function readDashboard(db: D1Database) {
   const [rooms, types, templates, assets, tasks, logs] = await db.batch([
     db.prepare("SELECT * FROM rooms ORDER BY sort_order, name"),
@@ -97,13 +108,14 @@ async function readDashboard(db: D1Database) {
     db.prepare(
       `SELECT t.*, a.name AS asset_name, a.asset_type_id,
               r.name AS room_name, at.icon AS asset_type_icon,
-              CAST(julianday(date(t.next_due_at)) - julianday(date('now')) AS INTEGER)
-                AS days_until_due
+              CASE WHEN t.interval_days > 0 THEN
+                CAST(julianday(date(t.next_due_at)) - julianday(date('now')) AS INTEGER)
+                ELSE NULL END AS days_until_due
        FROM maintenance_tasks t
        JOIN assets a ON a.id = t.asset_id
        LEFT JOIN rooms r ON r.id = a.room_id
        LEFT JOIN asset_types at ON at.id = a.asset_type_id
-       ORDER BY CASE WHEN t.next_due_at = '' THEN 0 ELSE 1 END, t.next_due_at, a.name, t.name`,
+       ORDER BY CASE WHEN t.interval_days = 0 THEN 2 WHEN t.next_due_at = '' THEN 0 ELSE 1 END, t.next_due_at, a.name, t.name`,
     ),
     db.prepare(
       `SELECT l.*, t.name AS task_name, a.name AS asset_name
@@ -148,6 +160,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const action = textValue(body.action, 40);
     const db = env.DB;
+    const needsSchedule = ["create_task", "update_task", "create_template", "update_template"].includes(action);
+    const schedule = needsSchedule ? readSchedule(body) : null;
+    if (needsSchedule && !schedule) return errorResponse("Scegli la modalità dell'attività e una frequenza valida per le attività periodiche.");
 
     const updateTables: Record<string, string> = {
       update_asset: "assets", update_room: "rooms", update_asset_type: "asset_types",
@@ -159,12 +174,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       const exists = await db.prepare("SELECT id FROM " + updateTables[action] + " WHERE id = ?").bind(id).first();
       if (!exists) return errorResponse("Elemento non trovato.", 404);
       if (action !== "update_log" && !textValue(body.name)) return errorResponse("Inserisci un nome.");
-      if (action === "update_task" || action === "update_template") {
-        const interval = positiveInteger(body.interval_days);
-        if (!interval || interval > 36500 || body.warning_days === "" || !Number.isSafeInteger(Number(body.warning_days)) || Number(body.warning_days) < 0)
-          return errorResponse("Frequenza e preavviso non validi.");
-      }
-      if (action === "update_task" && !isRealDate(body.next_due_at)) return errorResponse("Scadenza non valida.");
+      if (action === "update_task" && schedule!.intervalDays > 0 && !isRealDate(body.next_due_at)) return errorResponse("Scadenza non valida.");
       if (action === "update_log" && !isRealDate(body.completed_at)) return errorResponse("Data intervento non valida.");
       if (action === "update_asset" && body.installed_at && !isRealDate(body.installed_at)) return errorResponse("Data installazione non valida.");
       if (action === "update_room" && (!/^#[0-9a-f]{6}$/i.test(String(body.color)) || body.sort_order === "" || !Number.isSafeInteger(Number(body.sort_order)) || Number(body.sort_order) < 0))
@@ -186,14 +196,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         .bind(textValue(body.name, 100), optionalText(body.category, 80), textValue(body.icon, 40) || "wrench", Number(body.id)).run();
     } else if (action === "update_template") {
       await db.prepare("UPDATE maintenance_templates SET asset_type_id = ?, name = ?, interval_days = ?, warning_days = ?, notes = ? WHERE id = ?")
-        .bind(Number(body.asset_type_id), textValue(body.name, 120), Number(body.interval_days), Number(body.warning_days), optionalText(body.notes), Number(body.id)).run();
+        .bind(Number(body.asset_type_id), textValue(body.name, 120), schedule!.intervalDays, schedule!.warningDays, optionalText(body.notes), Number(body.id)).run();
     } else if (action === "update_log") {
       const logId = Number(body.id);
       // Calculate the effective newest date from the entire history, not the 80 displayed rows.
       // Both statements run in one D1 transaction. Notes-only edits preserve manual due dates.
       await db.batch([
         db.prepare(`UPDATE maintenance_tasks SET
-          next_due_at = CASE WHEN
+          next_due_at = CASE WHEN interval_days = 0 THEN '' WHEN
             (SELECT MAX(completed_at) FROM maintenance_logs WHERE task_id = maintenance_tasks.id)
             IS NOT
             (SELECT MAX(CASE WHEN id = ? THEN ? ELSE completed_at END) FROM maintenance_logs WHERE task_id = maintenance_tasks.id)
@@ -303,7 +313,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       await db.batch([
         db.prepare("INSERT INTO maintenance_logs (task_id, completed_at, notes) SELECT ?, ?, 'Data iniziale' WHERE NOT EXISTS (SELECT 1 FROM maintenance_logs WHERE task_id = ? AND completed_at = ?)")
           .bind(id, body.completed_at, id, body.completed_at),
-        db.prepare("UPDATE maintenance_tasks SET last_completed_at = ?, next_due_at = date(?, '+' || interval_days || ' days') WHERE id = ?")
+        db.prepare("UPDATE maintenance_tasks SET last_completed_at = ?, next_due_at = CASE WHEN interval_days = 0 THEN '' ELSE date(?, '+' || interval_days || ' days') END WHERE id = ?")
           .bind(body.completed_at, body.completed_at, id),
       ]);
     } else if (action === "delete_asset") {
@@ -313,11 +323,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     } else if (action === "create_task") {
       const assetId = positiveInteger(body.asset_id);
       const name = textValue(body.name, 120);
-      const intervalDays = positiveInteger(body.interval_days);
-      if (!assetId || !name || !intervalDays) {
-        return errorResponse("Elemento, attività e frequenza sono obbligatori.");
+      const intervalDays = schedule!.intervalDays;
+      if (!assetId || !name) {
+        return errorResponse("Elemento e nome dell'attività sono obbligatori.");
       }
-      const dueDate = validDate(
+      const dueDate = intervalDays === 0 ? "" : validDate(
         body.next_due_at,
         addDays(isoDate(), intervalDays),
       );
@@ -331,7 +341,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           assetId,
           name,
           intervalDays,
-          nonNegativeInteger(body.warning_days, 14),
+          schedule!.warningDays,
           dueDate,
           optionalText(body.notes),
         )
@@ -339,8 +349,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     } else if (action === "update_task") {
       const id = positiveInteger(body.id);
       const name = textValue(body.name, 120);
-      const intervalDays = positiveInteger(body.interval_days);
-      if (!id || !name || !intervalDays) {
+      const intervalDays = schedule!.intervalDays;
+      if (!id || !name) {
         return errorResponse("Manutenzione non valida.");
       }
       await db
@@ -353,8 +363,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         .bind(
           name,
           intervalDays,
-          nonNegativeInteger(body.warning_days, 14),
-          validDate(body.next_due_at),
+          schedule!.warningDays,
+          intervalDays === 0 ? "" : validDate(body.next_due_at),
           optionalText(body.notes),
           id,
         )
@@ -386,7 +396,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           .prepare(
             `UPDATE maintenance_tasks SET
               last_completed_at = (SELECT MAX(completed_at) FROM maintenance_logs WHERE task_id = ?),
-              next_due_at = date((SELECT MAX(completed_at) FROM maintenance_logs WHERE task_id = ?), '+' || interval_days || ' days')
+              next_due_at = CASE WHEN interval_days = 0 THEN '' ELSE date((SELECT MAX(completed_at) FROM maintenance_logs WHERE task_id = ?), '+' || interval_days || ' days') END
               WHERE id = ?`,
           )
           .bind(id, id, id),
@@ -407,9 +417,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     } else if (action === "create_template") {
       const assetTypeId = positiveInteger(body.asset_type_id);
       const name = textValue(body.name, 120);
-      const intervalDays = positiveInteger(body.interval_days);
-      if (!assetTypeId || !name || !intervalDays) {
-        return errorResponse("Tipo, attività e frequenza sono obbligatori.");
+      const intervalDays = schedule!.intervalDays;
+      if (!assetTypeId || !name) {
+        return errorResponse("Tipo e nome dell'attività sono obbligatori.");
       }
       await db
         .prepare(
@@ -421,7 +431,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           assetTypeId,
           name,
           intervalDays,
-          nonNegativeInteger(body.warning_days, 14),
+          schedule!.warningDays,
           optionalText(body.notes),
         )
         .run();

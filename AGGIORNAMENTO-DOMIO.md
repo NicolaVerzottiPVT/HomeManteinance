@@ -1,5 +1,30 @@
 # Aggiornare a Domio
 
+## Attività senza scadenza — 16 ottobre 2026
+
+Nel modulo Nuova attività standard e Nuova manutenzione trovi **Gestione
+dell'attività**:
+
+- **Periodica**: frequenza, preavviso e scadenze come prima.
+- **Solo registro, senza scadenza**: non devi inserire frequenza o preavviso.
+  Utile per cambio batteria, gomme, riparazioni e interventi non prevedibili.
+
+Le attività senza scadenza vengono create sugli elementi dal tipo come le altre.
+Nella scheda dell'elemento mostrano **Senza scadenza** e l'ultimo intervento.
+Premi **Registra intervento** ogni volta che esegui l'attività: scegli la data,
+aggiungi eventuali note e ritroverai tutto nel Registro.
+Non appaiono in Pianificazione, fra le scadenze o fra le date da impostare;
+non influenzano l'indice di cura. La loro scheda resta disponibile come promemoria.
+
+Da **Modifica** puoi cambiare modalità anche su modelli e attività esistenti.
+Passando a Solo registro, scadenza e preavviso vengono rimossi ma lo storico resta.
+Tornando a Periodica su un'attività, imposta frequenza, preavviso e prossima
+scadenza. Modificare un modello non cambia le attività già create: per quelle
+usa Modifica nella scheda dell'elemento.
+
+Per aggiornare carica functions/, public/ completo e frontend/. Mantieni
+database, binding e password: **non servono nuovi SQL o migrazioni**.
+
 ## Aggiornamento del 16 ottobre: attività automatiche dal tipo
 
 Quando crei un elemento e scegli il tipo, tutte le attività standard di quel tipo

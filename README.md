@@ -2,6 +2,10 @@
 
 Gestione domestica di elementi, manutenzioni ricorrenti e storico, con database Cloudflare D1.
 
+Ogni attività può essere **Periodica** o **Solo registro, senza scadenza**.
+La seconda modalità conserva interventi e ultima data senza frequenza, preavviso
+o scadenze: ad esempio per cambio batteria e gomme.
+
 Le attività standard vengono create automaticamente quando associ un tipo a un
 elemento. Per gli elementi già presenti usa **Aggiungi attività dal tipo** nella
 scheda, poi **Imposta ultima data** per calcolare le scadenze.
