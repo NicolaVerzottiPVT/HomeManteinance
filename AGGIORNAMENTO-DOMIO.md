@@ -1,5 +1,38 @@
 # Aggiornare a Domio
 
+## Aggiornamento del 16 ottobre: attività automatiche dal tipo
+
+Quando crei un elemento e scegli il tipo, tutte le attività standard di quel tipo
+vengono create automaticamente: non c'è più una casella da attivare.
+Lo stesso accade quando associ o cambi il tipo dalla finestra Modifica.
+La creazione di elemento e attività avviene nella stessa transazione.
+
+Per un elemento già presente, ad esempio Ford Fiesta:
+
+1. Verifica in Catalogo → Attività standard che Assicurazione, Bollo e le altre
+   attività siano associate al tipo Automobile.
+2. Apri La mia casa → Ford Fiesta.
+3. Premi **Aggiungi attività dal tipo**: vengono aggiunte solo le attività mancanti,
+   confrontando il nome (senza differenze di maiuscole o spazi esterni). Le attività
+   e le date già presenti non vengono modificate.
+4. Per ogni attività premi **Imposta ultima data**, inserisci l'ultima esecuzione
+   e salva: prossima scadenza = ultima data + frequenza in giorni.
+
+Finché non scegli una data, le nuove attività compaiono come **Da impostare**
+nella scheda elemento, nella dashboard e in Pianificazione. Non vengono conteggiate
+come scadute o in ordine. Se non conosci l'ultima esecuzione, puoi scegliere una
+scadenza esplicita da Modifica.
+
+Se aggiungi modelli nel Catalogo dopo aver creato l'elemento, usa nuovamente
+**Aggiungi attività dal tipo**. Non viene effettuata una sincronizzazione continua:
+una cancellazione volontaria resta tale fino a quando richiedi il recupero.
+Rinominare un modello nel Catalogo non rinomina le attività già create; un nome
+diverso viene considerato una nuova attività dal comando di recupero.
+
+Per pubblicare carica functions/, public/ completo e i sorgenti frontend/.
+Elimina dal repository i vecchi asset compilati non presenti nella nuova cartella.
+Mantieni database, binding DB e secret APP_PASSWORD: **nessun nuovo SQL**.
+
 ## Aggiornamento del 23 settembre: modifica dei dati
 
 È disponibile **Modifica** nella scheda elemento, in Pianificazione, nel Registro

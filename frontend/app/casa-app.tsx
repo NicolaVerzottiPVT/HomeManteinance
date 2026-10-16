@@ -47,7 +47,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -134,6 +133,7 @@ type Asset = {
   asset_type_name: string | null;
   asset_type_icon: string | null;
   maintenance_count: number;
+  missing_template_count: number;
 };
 
 type Task = {
@@ -149,7 +149,7 @@ type Task = {
   asset_name: string;
   room_name: string | null;
   asset_type_icon: string | null;
-  days_until_due: number;
+  days_until_due: number | null;
 };
 
 type Log = {
@@ -220,7 +220,8 @@ function formatInterval(days: number) {
   return `Ogni ${days} giorni`;
 }
 
-function dueLabel(days: number) {
+function dueLabel(days: number | null) {
+  if (days === null) return "Da impostare";
   if (days < -1) return `Scaduta da ${Math.abs(days)} giorni`;
   if (days === -1) return "Scaduta da ieri";
   if (days === 0) return "Da fare oggi";
@@ -229,8 +230,9 @@ function dueLabel(days: number) {
 }
 
 function taskTone(task: Task) {
-  if (task.days_until_due < 0) return "danger";
-  if (task.days_until_due <= task.warning_days) return "warning";
+  if (task.days_until_due === null) return "warning";
+  if (task.days_until_due !== null && task.days_until_due < 0) return "danger";
+  if (task.days_until_due !== null && task.days_until_due <= task.warning_days) return "warning";
   return "good";
 }
 
@@ -310,22 +312,23 @@ export function CasaApp() {
   );
 
   const overdue = useMemo(
-    () => data.tasks.filter((task) => task.days_until_due < 0),
+    () => data.tasks.filter((task) => task.days_until_due !== null && task.days_until_due < 0),
     [data.tasks],
   );
   const dueNow = useMemo(
     () =>
       data.tasks.filter(
         (task) =>
-          task.days_until_due >= 0 &&
-          task.days_until_due <= task.warning_days,
+          task.days_until_due !== null && task.days_until_due >= 0 &&
+          task.days_until_due !== null && task.days_until_due <= task.warning_days,
       ),
     [data.tasks],
   );
-  const healthy = data.tasks.length - overdue.length - dueNow.length;
-  const healthScore = data.tasks.length
-    ? Math.round(((data.tasks.length - overdue.length) / data.tasks.length) * 100)
-    : 100;
+  const scheduledCount = data.tasks.filter(task => task.days_until_due !== null).length;
+  const healthy = scheduledCount - overdue.length - dueNow.length;
+  const healthScore = scheduledCount
+    ? Math.round(((scheduledCount - overdue.length) / scheduledCount) * 100)
+    : 0;
 
   const openComplete = (task: Task) => {
     setSelectedTask(task);
@@ -448,6 +451,7 @@ export function CasaApp() {
           <main className="mx-auto w-full max-w-[1440px] p-4 md:p-8">
             {view === "today" && (
               <TodayView
+                perform={perform}
                 data={data}
                 overdue={overdue}
                 dueNow={dueNow}
@@ -556,6 +560,7 @@ function LoadingView() {
 
 function TodayView({
   data,
+  perform,
   overdue,
   dueNow,
   healthy,
@@ -565,6 +570,7 @@ function TodayView({
   onAddTask,
 }: {
   data: CasaData;
+  perform: Perform;
   overdue: Task[];
   dueNow: Task[];
   healthy: number;
@@ -575,7 +581,7 @@ function TodayView({
 }) {
   const attention = [...overdue, ...dueNow].slice(0, 6);
   const next = data.tasks
-    .filter((task) => task.days_until_due > task.warning_days)
+    .filter((task) => task.days_until_due !== null && task.days_until_due > task.warning_days)
     .slice(0, 4);
 
   if (!data.assets.length) {
@@ -628,6 +634,14 @@ function TodayView({
 
   return (
     <div className="space-y-6">
+      {data.tasks.some(task => task.days_until_due === null) && <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+        <h2 className="font-bold text-[#12343b]">Completa le date iniziali</h2>
+        <p className="mt-1 text-sm text-[#61797f]">Le attività del tipo sono pronte. Inserisci l'ultima esecuzione per calcolare le scadenze reali.</p>
+        <div className="mt-3 space-y-2">{data.tasks.filter(task => task.days_until_due === null).map(task =>
+          <div key={task.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white p-3">
+            <span className="text-sm">{task.asset_name} · {task.name}</span><LastDateButton task={task} perform={perform} />
+          </div>)}</div>
+      </section>}
       <section className="grid gap-4 lg:grid-cols-[1.35fr_.65fr]">
         <div className="rounded-[28px] bg-[#10333a] p-6 text-white shadow-[0_20px_55px_rgba(16,51,58,.14)] md:p-8">
           <div className="flex flex-col justify-between gap-8 sm:flex-row sm:items-center">
@@ -967,22 +981,23 @@ function PlanView({
   perform: Perform;
 }) {
   const groups = [
+    { label: "Da impostare", tone: "warning", tasks: tasks.filter(task => task.days_until_due === null) },
     {
       label: "Scadute",
       tone: "danger",
-      tasks: tasks.filter((task) => task.days_until_due < 0),
+      tasks: tasks.filter((task) => task.days_until_due !== null && task.days_until_due < 0),
     },
     {
       label: "Entro 30 giorni",
       tone: "warning",
       tasks: tasks.filter(
-        (task) => task.days_until_due >= 0 && task.days_until_due <= 30,
+        (task) => task.days_until_due !== null && task.days_until_due >= 0 && task.days_until_due <= 30,
       ),
     },
     {
       label: "Più avanti",
       tone: "good",
-      tasks: tasks.filter((task) => task.days_until_due > 30),
+      tasks: tasks.filter((task) => task.days_until_due !== null && task.days_until_due > 30),
     },
   ];
   return (
@@ -993,7 +1008,7 @@ function PlanView({
           Tutte le scadenze, in ordine.
         </h2>
       </div>
-      <div className="mt-7 grid gap-5 xl:grid-cols-3">
+      <div className="mt-7 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
         {groups.map((group) => (
           <section
             key={group.label}
@@ -1024,10 +1039,11 @@ function PlanView({
                       </span>
                     </div>
                   </div>
-                  <div className="mt-4 flex items-center justify-between">
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
                     <span className="text-xs font-semibold text-[#557178]">
                       {dueLabel(task.days_until_due)}
                     </span>
+                    <LastDateButton task={task} perform={perform} />
                     <EditRecord kind="task" record={task} perform={perform} />
                     <DeleteButton name={task.name} description="La manutenzione e il suo storico verranno eliminati." onDelete={() => perform("delete_task", { id: task.id }, "Manutenzione eliminata")} />
                     <Button
@@ -1145,7 +1161,9 @@ function EditRecord({ kind, record, data, perform }: {
       ? "Le manutenzioni già create non vengono modificate."
       : kind === "task"
         ? "La prossima scadenza è quella che scegli qui. Lo storico degli interventi resta invariato."
-        : "Aggiorna i dettagli e salva le modifiche.";
+        : kind === "asset"
+          ? "Quando associ un tipo diverso, le attività mancanti vengono create automaticamente. Quelle esistenti restano disponibili."
+          : "Aggiorna i dettagli e salva le modifiche.";
   return <Dialog open={open} onOpenChange={value => { if (!saving) setOpen(value); }}>
     <Button type="button" variant="ghost" size="sm" title={`Modifica ${values.name ?? values.task_name}`} onClick={() => setOpen(true)} className="shrink-0 text-[#176a60]">
       <Pencil className="size-4" /><span>Modifica</span>
@@ -1311,6 +1329,43 @@ function CatalogView({
   );
 }
 
+
+function SyncTypeTasks({ asset, perform }: { asset: Asset; perform: Perform }) {
+  const [busy, setBusy] = useState(false);
+  return <div className="rounded-2xl bg-[#edf8f6] p-4 text-sm">
+    <p className="mb-3 text-[#456d68]">{asset.missing_template_count
+      ? `${asset.missing_template_count} attività del tipo da aggiungere.`
+      : "Tutte le attività attualmente presenti nel tipo sono già associate."}</p>
+    <Button type="button" variant="outline" disabled={busy || !asset.missing_template_count} className="w-full whitespace-normal" onClick={async () => {
+      setBusy(true);
+      try { await perform("sync_asset_tasks", { id: asset.id }, "Attività del tipo aggiornate"); }
+      finally { setBusy(false); }
+    }}><Plus className="size-4" />{busy ? "Aggiunta…" : "Aggiungi attività dal tipo"}</Button>
+  </div>;
+}
+
+function LastDateButton({ task, perform }: { task: Task; perform: Perform }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  return <Dialog open={open} onOpenChange={value => { if (!busy) setOpen(value); }}>
+    <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)} className="rounded-xl text-[#176a60]">
+      <CalendarDays className="size-4" />{task.last_completed_at ? "Ultima data" : "Imposta ultima data"}
+    </Button>
+    <DialogContent className="rounded-3xl sm:max-w-md">
+      <DialogHeader><DialogTitle>Ultima esecuzione</DialogTitle><DialogDescription>{task.name} · {task.asset_name}. La prossima scadenza sarà calcolata da questa data con frequenza {formatInterval(task.interval_days).toLocaleLowerCase("it")}.</DialogDescription></DialogHeader>
+      <form onSubmit={async event => {
+        event.preventDefault(); const values = toPayload(event.currentTarget); setBusy(true);
+        try { if (await perform("set_task_last_date", { ...values, id: task.id }, "Data salvata e scadenza calcolata")) setOpen(false); }
+        finally { setBusy(false); }
+      }}>
+        <label className="block space-y-2 text-sm"><span>Ultima data di esecuzione</span><Input name="completed_at" type="date" defaultValue={task.last_completed_at ?? ""} required disabled={busy} /></label>
+        <p className="my-3 text-xs text-[#61797f]">La data viene conservata anche nel Registro. Se non la conosci, puoi impostare una scadenza direttamente da Modifica.</p>
+        <DialogFooter><Button type="button" variant="outline" disabled={busy} onClick={() => setOpen(false)}>Annulla</Button><Button type="submit" disabled={busy}>{busy ? "Salvataggio…" : "Salva"}</Button></DialogFooter>
+      </form>
+    </DialogContent>
+  </Dialog>;
+}
+
 function AssetDialog({
   open,
   data,
@@ -1323,12 +1378,10 @@ function AssetDialog({
   perform: Perform;
 }) {
   const [typeId, setTypeId] = useState("none");
-  const [withTasks, setWithTasks] = useState(true);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const payload = toPayload(event.currentTarget);
     payload.asset_type_id = typeId;
-    payload.create_default_tasks = withTasks;
     await perform("create_asset", payload, "Elemento aggiunto");
   };
   return (
@@ -1385,23 +1438,12 @@ function AssetDialog({
         <Field label="Data installazione">
           <Input name="installed_at" type="date" />
         </Field>
-        {typeId !== "none" && (
-          <label className="flex cursor-pointer items-start gap-3 rounded-2xl bg-[#edf8f6] p-4">
-            <Checkbox
-              checked={withTasks}
-              onCheckedChange={(value) => setWithTasks(value === true)}
-              className="mt-0.5"
-            />
-            <span>
-              <strong className="block text-sm text-[#174a46]">
-                Prepara le attività suggerite
-              </strong>
-              <span className="mt-1 block text-xs leading-5 text-[#66817d]">
-                Potrai modificarle o aggiungerne altre in seguito.
-              </span>
-            </span>
-          </label>
-        )}
+        {typeId !== "none" && <div className="rounded-2xl bg-[#edf8f6] p-4 text-sm text-[#174a46]">
+          <strong>Attività del tipo: {data.templates.filter(template => template.asset_type_id === Number(typeId)).length}</strong>
+          <p className="mt-1 text-xs leading-5">{data.templates.some(template => template.asset_type_id === Number(typeId))
+            ? "Verranno create automaticamente. Inserisci poi l'ultima data di ogni attività nella scheda dell'elemento."
+            : "Questo tipo non ha attività standard. Aggiungile nel Catalogo, poi usa «Aggiungi attività dal tipo» nella scheda dell'elemento."}</p>
+        </div>}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
             Annulla
@@ -1783,6 +1825,7 @@ function AssetSheet({
             </SheetHeader>
             <div className="space-y-7 p-6">
               <EditRecord kind="asset" record={asset} data={data} perform={perform} />
+              {asset.asset_type_id && <SyncTypeTasks asset={asset} perform={perform} />}
               <section>
                 <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-[#71878c]">
                   Dettagli
@@ -1814,8 +1857,8 @@ function AssetSheet({
                       key={task.id}
                       className="rounded-2xl border border-[#e0e9eb] p-4"
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="w-full">
                           <strong className="text-sm text-[#173940]">
                             {task.name}
                           </strong>
@@ -1824,6 +1867,7 @@ function AssetSheet({
                             {dueLabel(task.days_until_due)}
                           </p>
                         </div>
+                        <LastDateButton task={task} perform={perform} />
                         <EditRecord kind="task" record={task} perform={perform} />
                         <Button
                           size="sm"

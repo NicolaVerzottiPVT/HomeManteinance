@@ -2,6 +2,12 @@
 
 Gestione domestica di elementi, manutenzioni ricorrenti e storico, con database Cloudflare D1.
 
+Le attività standard vengono create automaticamente quando associ un tipo a un
+elemento. Per gli elementi già presenti usa **Aggiungi attività dal tipo** nella
+scheda, poi **Imposta ultima data** per calcolare le scadenze.
+Le istruzioni per aggiornare il sito già online sono in
+[AGGIORNAMENTO-DOMIO.md](AGGIORNAMENTO-DOMIO.md).
+
 **Per pubblicare segui [GUIDA-PUBBLICAZIONE.md](GUIDA-PUBBLICAZIONE.md).**
 È sufficiente usare GitHub e il pannello Cloudflare: nessun comando sul tuo computer per la prima pubblicazione.
 

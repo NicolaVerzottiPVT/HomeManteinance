@@ -1,5 +1,22 @@
 # Verifica Domio — 22 settembre 2026
 
+## Correzione attività automatiche — 16 ottobre 2026
+
+Generazione automatica dei modelli del tipo nella creazione dell'elemento
+e nell'associazione di un tipo diverso. Recupero esplicito delle attività mancanti
+per elementi esistenti. Duplicati evitati per elemento e nome normalizzato.
+Le nuove attività restano senza data fino all'inserimento dell'ultima esecuzione
+o di una scadenza esplicita; le date iniziali sono conservate nel Registro.
+Schema SQL invariato. Il pacchetto contiene già public/ ricompilato.
+
+Verificati nel runtime Pages con D1 locale: creazione con tipo Automobile e
+tre modelli (Assicurazione, Bollo, Cambio batteria), recupero su Fiesta esistente
+senza attività, ripetizione senza duplicati, associazione del tipo in modifica,
+aggiunta successiva di un modello e conservazione di attività personalizzate,
+date e storico. Verificate le date iniziali, la mancata ricreazione di attività
+cancellate durante un normale salvataggio, input non validi e gli asset statici.
+Superati anche i test precedenti di modifica di tutte le categorie e storico.
+
 ## Verifica aggiuntiva — 23 settembre 2026
 
 Aggiunti moduli precompilati di modifica per elementi, stanze, tipi, modelli,

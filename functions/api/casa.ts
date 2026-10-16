@@ -47,6 +47,23 @@ function addDays(date: string, days: number) {
   return isoDate(value);
 }
 
+// Materialize the asset before inserting tasks so last_insert_rowid() remains
+// the new asset ID throughout a multi-row INSERT in the creation transaction.
+function missingTasksStatement(db: D1Database, assetId?: number) {
+  const statement = db.prepare(`WITH selected_asset AS MATERIALIZED (
+      SELECT id, asset_type_id FROM assets WHERE id = ${assetId === undefined ? "last_insert_rowid()" : "?"}
+    )
+    INSERT INTO maintenance_tasks
+      (asset_id, name, interval_days, warning_days, next_due_at, notes)
+    SELECT a.id, mt.name, mt.interval_days, mt.warning_days, '', mt.notes
+    FROM selected_asset a JOIN maintenance_templates mt ON mt.asset_type_id = a.asset_type_id
+    WHERE NOT EXISTS (
+      SELECT 1 FROM maintenance_tasks t
+      WHERE t.asset_id = a.id AND lower(trim(t.name)) = lower(trim(mt.name))
+    )`);
+  return assetId === undefined ? statement : statement.bind(assetId);
+}
+
 async function readDashboard(db: D1Database) {
   const [rooms, types, templates, assets, tasks, logs] = await db.batch([
     db.prepare("SELECT * FROM rooms ORDER BY sort_order, name"),
@@ -66,7 +83,10 @@ async function readDashboard(db: D1Database) {
     db.prepare(
       `SELECT a.*, r.name AS room_name, r.color AS room_color,
               at.name AS asset_type_name, at.icon AS asset_type_icon,
-              COUNT(t.id) AS maintenance_count
+              COUNT(t.id) AS maintenance_count,
+              (SELECT COUNT(*) FROM maintenance_templates mt WHERE mt.asset_type_id = a.asset_type_id
+                AND NOT EXISTS (SELECT 1 FROM maintenance_tasks existing WHERE existing.asset_id = a.id
+                  AND lower(trim(existing.name)) = lower(trim(mt.name)))) AS missing_template_count
        FROM assets a
        LEFT JOIN rooms r ON r.id = a.room_id
        LEFT JOIN asset_types at ON at.id = a.asset_type_id
@@ -83,7 +103,7 @@ async function readDashboard(db: D1Database) {
        JOIN assets a ON a.id = t.asset_id
        LEFT JOIN rooms r ON r.id = a.room_id
        LEFT JOIN asset_types at ON at.id = a.asset_type_id
-       ORDER BY t.next_due_at, a.name, t.name`,
+       ORDER BY CASE WHEN t.next_due_at = '' THEN 0 ELSE 1 END, t.next_due_at, a.name, t.name`,
     ),
     db.prepare(
       `SELECT l.*, t.name AS task_name, a.name AS asset_name
@@ -214,7 +234,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       if (!name) return errorResponse("Inserisci il nome dell'elemento.");
       const roomId = positiveInteger(body.room_id);
       const assetTypeId = positiveInteger(body.asset_type_id);
-      const result = await db
+      if (assetTypeId && !await db.prepare("SELECT id FROM asset_types WHERE id = ?").bind(assetTypeId).first())
+        return errorResponse("Il tipo selezionato non è disponibile.");
+      if (roomId && !await db.prepare("SELECT id FROM rooms WHERE id = ?").bind(roomId).first())
+        return errorResponse("La stanza selezionata non è disponibile.");
+      const insertAsset = db
         .prepare(
           `INSERT INTO assets
              (room_id, asset_type_id, name, category, brand, model, installed_at, notes)
@@ -230,27 +254,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           optionalText(body.installed_at, 10),
           optionalText(body.notes),
         )
-        .run();
+        ;
 
-      const assetId = Number(result.meta.last_row_id);
-      if (body.create_default_tasks && assetTypeId) {
-        await db
-          .prepare(
-            `INSERT INTO maintenance_tasks
-               (asset_id, name, interval_days, warning_days, next_due_at, notes)
-             SELECT ?, name, interval_days, warning_days,
-                    date('now', '+' || interval_days || ' day'), notes
-             FROM maintenance_templates
-             WHERE asset_type_id = ?`,
-          )
-          .bind(assetId, assetTypeId)
-          .run();
-      }
+      await db.batch([insertAsset, missingTasksStatement(db)]);
     } else if (action === "update_asset") {
       const id = positiveInteger(body.id);
       const name = textValue(body.name, 120);
       if (!id || !name) return errorResponse("Elemento non valido.");
-      await db
+      const previous = await db.prepare("SELECT asset_type_id FROM assets WHERE id = ?").bind(id).first<{ asset_type_id: number | null }>();
+      const updateAsset = db
         .prepare(
           `UPDATE assets SET room_id = ?, asset_type_id = ?, name = ?,
              category = ?, brand = ?, model = ?, installed_at = ?, notes = ?
@@ -267,7 +279,33 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           optionalText(body.notes),
           id,
         )
-        .run();
+        ;
+      const selectedType = positiveInteger(body.asset_type_id);
+      await db.batch(selectedType && previous?.asset_type_id !== selectedType
+        ? [updateAsset, missingTasksStatement(db, id)] : [updateAsset]);
+    } else if (action === "sync_asset_tasks") {
+      const id = positiveInteger(body.id);
+      if (!id) return errorResponse("Elemento non valido.");
+      const asset = await db.prepare("SELECT asset_type_id FROM assets WHERE id = ?").bind(id).first<{ asset_type_id: number | null }>();
+      if (!asset) return errorResponse("Elemento non trovato.", 404);
+      if (!asset.asset_type_id) return errorResponse("Associa prima un tipo all'elemento.");
+      const results = await db.batch([missingTasksStatement(db, id)]);
+      return Response.json({ ok: true, added: results[0].meta.changes });
+    } else if (action === "set_task_last_date") {
+      const id = positiveInteger(body.id);
+      if (!id || !isRealDate(body.completed_at)) return errorResponse("Data dell'ultimo intervento non valida.");
+      const task = await db.prepare("SELECT id FROM maintenance_tasks WHERE id = ?").bind(id).first();
+      if (!task) return errorResponse("Manutenzione non trovata.", 404);
+      const latest = await db.prepare("SELECT MAX(completed_at) AS latest FROM maintenance_logs WHERE task_id = ?")
+        .bind(id).first<{ latest: string | null }>();
+      if (latest?.latest && String(body.completed_at) < latest.latest)
+        return errorResponse("Esiste un intervento più recente nel registro. Correggi quella registrazione se la data è errata.");
+      await db.batch([
+        db.prepare("INSERT INTO maintenance_logs (task_id, completed_at, notes) SELECT ?, ?, 'Data iniziale' WHERE NOT EXISTS (SELECT 1 FROM maintenance_logs WHERE task_id = ? AND completed_at = ?)")
+          .bind(id, body.completed_at, id, body.completed_at),
+        db.prepare("UPDATE maintenance_tasks SET last_completed_at = ?, next_due_at = date(?, '+' || interval_days || ' days') WHERE id = ?")
+          .bind(body.completed_at, body.completed_at, id),
+      ]);
     } else if (action === "delete_asset") {
       const id = positiveInteger(body.id);
       if (!id) return errorResponse("Elemento non valido.");
@@ -336,7 +374,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         .bind(id)
         .first<{ interval_days: number }>();
       if (!task) return errorResponse("Manutenzione non trovata.", 404);
-      const completedAt = validDate(body.completed_at);
+      const completedAt = body.completed_at === undefined ? isoDate() : body.completed_at;
+      if (!isRealDate(completedAt)) return errorResponse("Data completamento non valida.");
       await db.batch([
         db
           .prepare(
@@ -345,9 +384,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           .bind(id, completedAt, optionalText(body.notes)),
         db
           .prepare(
-            "UPDATE maintenance_tasks SET last_completed_at = ?, next_due_at = ? WHERE id = ?",
+            `UPDATE maintenance_tasks SET
+              last_completed_at = (SELECT MAX(completed_at) FROM maintenance_logs WHERE task_id = ?),
+              next_due_at = date((SELECT MAX(completed_at) FROM maintenance_logs WHERE task_id = ?), '+' || interval_days || ' days')
+              WHERE id = ?`,
           )
-          .bind(completedAt, addDays(completedAt, task.interval_days), id),
+          .bind(id, id, id),
       ]);
     } else if (action === "create_asset_type") {
       const name = textValue(body.name, 100);
